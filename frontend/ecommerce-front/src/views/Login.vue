@@ -88,17 +88,10 @@ const handleLogin = async () => {
       personaId           // number
     );
 
-    // 2️⃣ Traer o crear carrito
-    let carritoId = Number(localStorage.getItem("cart_id"));
-    if (!carritoId) {
-      const nuevoCarrito = await crearCarrito();
-      carritoId = nuevoCarrito.id;
-      localStorage.setItem("cart_id", carritoId.toString());
-      cartStore.carritoId = carritoId;
+    // 2️⃣ Solo sincronizar si ya existe carrito
+    if (cartStore.carritoId) {
+      await cartStore.fetchCarrito();
     }
-
-    // Sincronizamos productos del carrito
-    await cartStore.fetchCarrito();
 
     await Swal.fire({
       icon: 'success',

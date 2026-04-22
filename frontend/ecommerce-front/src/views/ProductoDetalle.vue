@@ -111,7 +111,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import axios from '../services/axiosConfig'
+import { getProductoByCodigo } from '../Productos/services/productos.service'
 import Swal from 'sweetalert2'
 import { useCartStore } from '../store/cart'
 import { useAuthStore } from '../store/auth'
@@ -149,13 +149,8 @@ const agregarCarrito = async () => {
 }
 onMounted(async () => {
     try {
-        const codigo = route.params.codigo
-
-        const response = await axios.get(
-            `/ms-productos/productos/${codigo}`
-        )
-
-        producto.value = response.data
+        const codigo = Number(route.params.codigo)
+        producto.value = await getProductoByCodigo(codigo)
 
     } catch (e) {
         error.value = true

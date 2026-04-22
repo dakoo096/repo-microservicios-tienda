@@ -2,19 +2,39 @@ import api from "../../services/api";
 import type { Producto } from "../../types/types";
 
 const API_URL = "/ms-productos/productos";
+const BASE_URL = "http://localhost:8080";
+
+export const getImageUrl = (url?: string) => {
+  if (!url) return "";
+  if (url.startsWith("http")) return url;
+  // Si empieza con /, asumimos que es una ruta relativa del backend
+  // El backend devuelve /productos/imagenes/... pero el gateway usa /ms-productos
+  const cleanUrl = url.startsWith("/") ? url : `/${url}`;
+  
+  // Si la ruta ya tiene /ms-productos, solo agregar BASE_URL
+  if (cleanUrl.startsWith("/ms-productos")) {
+    return `${BASE_URL}${cleanUrl}`;
+  }
+  
+  // Si es la ruta típica de imágenes (/productos/imagenes/...), agregar el prefijo del microservicio
+  return `${BASE_URL}/ms-productos${cleanUrl}`;
+};
 
 export const getProductos = async () => {
   const res = await api.get(API_URL);
   return res.data.map((p: any) => ({
     ...p,
-    // La propiedad que devuelve el backend ya incluye /productos/imagenes/
-    urlImagen: p.urlImagen,
+    urlImagen: getImageUrl(p.urlImagen),
   }));
 };
 
 export const getProductoByCodigo = async (codigo: number): Promise<Producto> => {
   const res = await api.get(`${API_URL}/${codigo}`);
-  return res.data;
+  const producto = res.data;
+  return {
+    ...producto,
+    urlImagen: getImageUrl(producto.urlImagen)
+  };
 };
 
 export const crearProducto = async (producto: Producto): Promise<Producto> => {

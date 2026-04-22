@@ -1,27 +1,27 @@
 package com.example.ms_carrito.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.List;
-
 @Entity
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class Carrito {
+public class ItemCarrito {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @OneToMany(mappedBy = "carrito", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<ItemCarrito> items;
+    private Long productoId;
+    private int cantidad;
+    private Double precioUnitario;
 
-    private Double total;
-
-    @Column(unique = true)
-    private Long personaId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "carrito_id")
+    @JsonIgnore
+    private Carrito carrito;
 }

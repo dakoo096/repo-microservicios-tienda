@@ -4,6 +4,7 @@ import com.example.ms_carrito.dto.CarritoDTO;
 import com.example.ms_carrito.dto.ItemCarritoDTO;
 import com.example.ms_carrito.dto.ProductoDTO;
 import com.example.ms_carrito.entity.Carrito;
+import com.example.ms_carrito.entity.ItemCarrito;
 import com.example.ms_carrito.exception.ProductoServiceUnavailableException;
 import com.example.ms_carrito.repository.CarritoRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class CarritoService implements ICarritoService {
@@ -25,7 +27,7 @@ public class CarritoService implements ICarritoService {
     @Transactional
     public CarritoDTO crearCarritoDTO() {
         Carrito carrito = new Carrito();
-        carrito.setProductosIds(new ArrayList<>());
+        carrito.setItems(new ArrayList<>());
         carrito.setTotal(0.0);
 
         carritoRepo.save(carrito);
@@ -55,17 +57,33 @@ public class CarritoService implements ICarritoService {
                 .orElseThrow(() -> new RuntimeException("Carrito no encontrado"));
 
         ProductoDTO producto = productoClient.obtenerProducto(productoId);
-
         if (producto == null || producto.getPrecio() == null) {
             throw new ProductoServiceUnavailableException(
-                    "No se puede agregar el producto: servicio de productos caído"
-            );
+                    "No se puede agregar el producto: servicio de productos caído o producto inválido");
         }
 
-        if (carrito.getProductosIds() == null) carrito.setProductosIds(new ArrayList<>());
-        carrito.getProductosIds().add(productoId);
-        carrito.setTotal(Optional.ofNullable(carrito.getTotal()).orElse(0.0) + producto.getPrecio());
+        if (carrito.getItems() == null) {
+            carrito.setItems(new ArrayList<>());
+        }
 
+        Optional<ItemCarrito> itemExistente = carrito.getItems().stream()
+                .filter(item -> item.getProductoId().equals(productoId))
+                .findFirst();
+
+        if (itemExistente.isPresent()) {
+            ItemCarrito item = itemExistente.get();
+            item.setCantidad(item.getCantidad() + 1);
+            item.setPrecioUnitario(producto.getPrecio()); // Actualizar precio por si cambió
+        } else {
+            ItemCarrito nuevoItem = new ItemCarrito();
+            nuevoItem.setProductoId(productoId);
+            nuevoItem.setCantidad(1);
+            nuevoItem.setPrecioUnitario(producto.getPrecio());
+            nuevoItem.setCarrito(carrito);
+            carrito.getItems().add(nuevoItem);
+        }
+
+        recalcularTotal(carrito);
         carritoRepo.save(carrito);
     }
 
@@ -75,13 +93,21 @@ public class CarritoService implements ICarritoService {
         Carrito carrito = carritoRepo.findById(carritoId)
                 .orElseThrow(() -> new RuntimeException("Carrito no encontrado"));
 
-        ProductoDTO producto = productoClient.obtenerProducto(productoId);
+        if (carrito.getItems() != null) {
+            Optional<ItemCarrito> itemExistente = carrito.getItems().stream()
+                    .filter(item -> item.getProductoId().equals(productoId))
+                    .findFirst();
 
-        if (carrito.getProductosIds() != null && carrito.getProductosIds().contains(productoId)) {
-            carrito.getProductosIds().remove(productoId);
-            carrito.setTotal(Optional.ofNullable(carrito.getTotal()).orElse(0.0) -
-                    (producto != null ? producto.getPrecio() : 0.0));
-            carritoRepo.save(carrito);
+            if (itemExistente.isPresent()) {
+                ItemCarrito item = itemExistente.get();
+                if (item.getCantidad() > 1) {
+                    item.setCantidad(item.getCantidad() - 1);
+                } else {
+                    carrito.getItems().remove(item);
+                }
+                recalcularTotal(carrito);
+                carritoRepo.save(carrito);
+            }
         }
     }
 
@@ -92,12 +118,14 @@ public class CarritoService implements ICarritoService {
                 .orElseThrow(() -> new RuntimeException("Carrito no encontrado"));
 
         List<ProductoDTO> productos = new ArrayList<>();
-        if (carrito.getProductosIds() != null) {
-            for (Long productoId : carrito.getProductosIds()) {
-                try {
-                    productos.add(productoClient.obtenerProducto(productoId));
-                } catch (Exception e) {
-                    productos.add(null); // fallback
+        if (carrito.getItems() != null) {
+            for (ItemCarrito item : carrito.getItems()) {
+                for (int i = 0; i < item.getCantidad(); i++) {
+                    try {
+                        productos.add(productoClient.obtenerProducto(item.getProductoId()));
+                    } catch (Exception e) {
+                        productos.add(null);
+                    }
                 }
             }
         }
@@ -116,7 +144,7 @@ public class CarritoService implements ICarritoService {
     @Transactional
     public CarritoDTO crearCarritoDTOParaPersona(Long personaId) {
         Carrito carrito = new Carrito();
-        carrito.setProductosIds(new ArrayList<>());
+        carrito.setItems(new ArrayList<>());
         carrito.setTotal(0.0);
         carrito.setPersonaId(personaId);
 
@@ -132,28 +160,28 @@ public class CarritoService implements ICarritoService {
                 .orElse(null);
     }
 
-    /* ======================
-       MAPPER PRIVADO
-       ====================== */
-    private CarritoDTO mapToDTO(Carrito carrito) {
-        Map<Long, Integer> contador = new HashMap<>();
-
-        if (carrito.getProductosIds() != null) {
-            for (Long productoId : carrito.getProductosIds()) {
-                contador.put(productoId, contador.getOrDefault(productoId, 0) + 1);
-            }
+    private void recalcularTotal(Carrito carrito) {
+        double total = 0.0;
+        if (carrito.getItems() != null) {
+            total = carrito.getItems().stream()
+                    .mapToDouble(item -> item.getCantidad() * item.getPrecioUnitario())
+                    .sum();
         }
+        carrito.setTotal(total);
+    }
 
-        List<ItemCarritoDTO> items = new ArrayList<>();
-        for (var entry : contador.entrySet()) {
-            items.add(new ItemCarritoDTO(entry.getKey(), entry.getValue()));
+    private CarritoDTO mapToDTO(Carrito carrito) {
+        List<ItemCarritoDTO> itemsDTO = new ArrayList<>();
+        if (carrito.getItems() != null) {
+            itemsDTO = carrito.getItems().stream()
+                    .map(item -> new ItemCarritoDTO(item.getProductoId(), item.getCantidad()))
+                    .collect(Collectors.toList());
         }
 
         return new CarritoDTO(
                 carrito.getId(),
                 carrito.getPersonaId(),
-                items,
-                Optional.ofNullable(carrito.getTotal()).orElse(0.0)
-        );
+                itemsDTO,
+                Optional.ofNullable(carrito.getTotal()).orElse(0.0));
     }
 }
